@@ -12,8 +12,10 @@ context via the call_id; Phase 4 conditions the prompt on Cekura-mined exemplars
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request, WebSocket
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from loguru import logger
 from pydantic import BaseModel
 from pipecat.runner.utils import parse_telephony_websocket
@@ -28,6 +30,14 @@ settings = load_settings()
 twilio_client = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
 
 app = FastAPI(title="Lasso Voice")
+
+_DASHBOARD = Path(__file__).parent / "static" / "dashboard.html"
+
+
+@app.get("/")
+async def dashboard_page():
+    """The 'it learns' scoreboard — the demo's payoff screen."""
+    return FileResponse(_DASHBOARD)
 
 # One shared store so /improve, /cekura/run and /api/scoreboard see the same state.
 _store = LoopStore(settings)
@@ -160,6 +170,13 @@ async def improve(merchant_id: str, req: ImproveRequest):
             ),
         }
     )
+
+
+@app.post("/admin/reset/{merchant_id}")
+async def admin_reset(merchant_id: str):
+    """Clear learned state so the demo can run again from v0."""
+    _store.reset(merchant_id)
+    return JSONResponse({"ok": True, "merchant_id": merchant_id})
 
 
 @app.get("/api/scoreboard/{merchant_id}")

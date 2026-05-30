@@ -34,6 +34,13 @@ class LoopStore:
         self._runs: list[dict[str, Any]] = []
         self._versions: dict[str, int] = defaultdict(int)  # merchant -> strategy version
 
+    # ── demo control ───────────────────────────────────────────────────────────
+    def reset(self, merchant_id: str) -> None:
+        """Clear a merchant's learned state (for re-running the demo from v0)."""
+        self._exemplars.pop(merchant_id, None)
+        self._versions.pop(merchant_id, None)
+        self._runs = [r for r in self._runs if r["merchant_id"] != merchant_id]
+
     # ── versions ─────────────────────────────────────────────────────────────
     def strategy_version(self, merchant_id: str) -> int:
         return self._versions[merchant_id]

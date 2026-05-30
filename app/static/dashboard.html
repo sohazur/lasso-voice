@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lasso Voice — it learns</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14181d; --line: #232a31; --ink: #e8edf2;
+    --muted: #8b97a3; --red: #ff5a5f; --green: #2ecc71; --amber: #f5a623;
+    --accent: #6ea8fe;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 40px 24px 80px; }
+  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  h1 { font-size: 26px; letter-spacing: -.02em; margin: 0; }
+  .tag {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+    color: #0b0d10; background: var(--amber); padding: 3px 8px; border-radius: 999px;
+  }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .controls { display: flex; gap: 12px; align-items: center; margin-bottom: 28px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; border: 0; border-radius: 10px;
+    padding: 12px 20px; color: #0b0d10; background: var(--accent); transition: .15s;
+  }
+  button:hover { filter: brightness(1.08); } button:disabled { opacity: .5; cursor: default; }
+  .ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .meta b { color: var(--ink); }
+
+  .stage { display: grid; grid-template-columns: 1fr auto 1fr; gap: 18px; align-items: stretch; margin-bottom: 28px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 20px; min-height: 190px; position: relative; opacity: .35;
+    transition: opacity .4s, border-color .4s, transform .4s; transform: translateY(6px);
+  }
+  .card.show { opacity: 1; transform: none; }
+  .card .when { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+  .verdict { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
+  .verdict.red .dot { background: var(--red); box-shadow: 0 0 0 4px rgba(255,90,95,.15); }
+  .verdict.green .dot { background: var(--green); box-shadow: 0 0 0 4px rgba(46,204,113,.15); }
+  .verdict .label { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+  .verdict.red .label { color: var(--red); } .verdict.green .label { color: var(--green); }
+  .score { font-size: 13px; color: var(--muted); }
+  .reason { font-size: 13.5px; color: #c4ccd4; margin-top: 12px; }
+  .arrow { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 24px; }
+
+  .fix {
+    background: linear-gradient(180deg, rgba(110,168,254,.08), transparent);
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 12px; padding: 16px 18px; margin-bottom: 28px;
+    opacity: 0; transform: translateY(6px); transition: .45s;
+  }
+  .fix.show { opacity: 1; transform: none; }
+  .fix .k { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); font-weight: 700; }
+  .fix .body { margin-top: 8px; font-size: 14.5px; color: #dde4ea; }
+  .fix .by { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+  .board { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; }
+  .board h2 { font-size: 14px; margin: 0 0 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .runs { display: flex; gap: 8px; align-items: flex-end; height: 120px; }
+  .bar { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; justify-content: flex-end; }
+  .bar .track { flex: 1; width: 100%; max-width: 54px; display: flex; align-items: flex-end; }
+  .bar .fill { width: 100%; border-radius: 6px 6px 0 0; background: var(--red); transition: height .5s, background .5s; }
+  .bar.pass .fill { background: var(--green); }
+  .bar .pct { font-size: 12px; color: var(--muted); }
+  .bar .v { font-size: 10px; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; }
+  .footer { margin-top: 26px; color: var(--muted); font-size: 13px; text-align: center; }
+  .cta { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Lasso Voice</h1><span class="tag">it learns</span></header>
+  <p class="sub">A cart-recovery agent that fixes its own objection handling — scored, no human in the loop.</p>
+
+  <div class="controls">
+    <button id="run">▶ Run the day</button>
+    <button id="reset" class="ghost">Reset</button>
+    <span class="meta" id="status">Objection under test: <b>price</b> · scored by <b id="backend">—</b></span>
+  </div>
+
+  <div class="stage">
+    <div class="card" id="before">
+      <div class="when">9:00 AM</div>
+      <div class="verdict" id="before-verdict"><span class="dot"></span><span class="label">—</span></div>
+      <div class="score" id="before-score"></div>
+      <div class="reason" id="before-reason"></div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="card" id="after">
+      <div class="when">2:00 PM</div>
+      <div class="verdict" id="after-verdict"><span class="dot"></span><span class="label">—</span></div>
+      <div class="score" id="after-score"></div>
+      <div class="reason" id="after-reason"></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix">
+    <div class="k">↻ Mined fix — folded into the agent, automatically</div>
+    <div class="body" id="fix-body"></div>
+    <div class="by" id="fix-by"></div>
+  </div>
+
+  <div class="board">
+    <h2>Scoreboard · strategy v<span id="ver">0</span></h2>
+    <div class="runs" id="runs"><span class="empty">No runs yet — press “Run the day”.</span></div>
+  </div>
+
+  <div class="footer">Your site just saved a sale at 2&nbsp;AM. <span class="cta">— Lasso Voice</span></div>
+</div>
+
+<script>
+const M = "acme";
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function setVerdict(prefix, r) {
+  const v = $(prefix + "-verdict");
+  v.classList.remove("red", "green");
+  v.classList.add(r.passed ? "green" : "red");
+  v.querySelector(".label").textContent = r.passed ? "GREEN" : "RED";
+  $(prefix + "-score").textContent = "score " + r.score.toFixed(2) + " · " + r.backend;
+  $(prefix + "-reason").textContent = r.reasoning || "";
+  $(prefix).classList.add("show");
+}
+
+async function loadBoard() {
+  const d = await (await fetch(`/api/scoreboard/${M}`)).json();
+  $("ver").textContent = d.strategy_version;
+  const runs = d.runs || [];
+  const el = $("runs");
+  if (!runs.length) { el.innerHTML = '<span class="empty">No runs yet — press “Run the day”.</span>'; return; }
+  el.innerHTML = runs.map((r, i) => `
+    <div class="bar ${r.passed ? "pass" : ""}">
+      <span class="pct">${(r.score*100|0)}%</span>
+      <div class="track"><div class="fill" style="height:${r.passed ? Math.max(12, r.score*100) : 22}%"></div></div>
+      <span class="v">v${r.strategy_version}</span>
+    </div>`).join("");
+}
+
+$("run").onclick = async () => {
+  const btn = $("run"); btn.disabled = true; btn.textContent = "Running…";
+  // reset cards + learned state so every press tells the full 9am-red → 2pm-green story
+  ["before","after","fix"].forEach(id => $(id).classList.remove("show"));
+  $("status").querySelector("#backend").textContent = "…";
+  try {
+    await fetch(`/admin/reset/${M}`, {method: "POST"});
+    await loadBoard();
+    const r = await (await fetch(`/improve/${M}`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({objection: "price", store_name: "Acme Coffee"})
+    })).json();
+
+    $("backend").textContent = r.before.backend;
+    setVerdict("before", r.before);          // 9am red
+    await loadBoard();
+    await sleep(900);
+    if (r.mined_exemplar) {
+      $("fix-body").textContent = "“" + r.mined_exemplar.corrected_handling + "”";
+      $("fix-by").textContent = "mined from the failed call · no human touched it";
+      $("fix").classList.add("show");
+      await sleep(900);
+    }
+    if (r.after) setVerdict("after", r.after); // 2pm green
+    await loadBoard();
+  } catch (e) {
+    $("status").querySelector("#backend").textContent = "error: " + e;
+  } finally {
+    btn.disabled = false; btn.textContent = "▶ Run the day";
+  }
+};
+
+$("reset").onclick = async () => {
+  await fetch(`/admin/reset/${M}`, {method: "POST"}).catch(()=>{});
+  ["before","after","fix"].forEach(id => $(id).classList.remove("show"));
+  await loadBoard();
+};
+
+loadBoard();
+</script>
+</body>
+</html>
