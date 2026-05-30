@@ -115,6 +115,17 @@
     <div class="runs" id="runs"><span class="empty">No runs yet — press “Run the day”.</span></div>
   </div>
 
+  <div class="board" style="margin-top:28px">
+    <h2>Drop it on any store</h2>
+    <p class="sub" style="margin:0 0 12px">
+      Paste this one line. On checkout abandonment it shows a consented “Call me to finish”
+      modal — and every real call it makes teaches the agent. <a href="/demo-store" style="color:var(--accent)">See the demo store →</a>
+    </p>
+    <pre id="snippet" style="background:#0f1318;border:1px solid var(--line);border-radius:12px;
+      padding:14px 16px;overflow:auto;color:#c4ccd4;font:13px/1.5 ui-monospace,Menlo,monospace;margin:0">…</pre>
+    <button class="ghost" id="copy" style="margin-top:10px">Copy snippet</button>
+  </div>
+
   <div class="footer">Your site just saved a sale at 2&nbsp;AM. <span class="cta">— Lasso Voice</span></div>
 </div>
 
@@ -186,6 +197,19 @@ $("reset").onclick = async () => {
 };
 
 loadBoard();
+
+// Snippet box (C3): show the merchant's copy-paste tag from the live base URL.
+(async () => {
+  try {
+    const cfg = await (await fetch("/api/config")).json();
+    $("snippet").textContent = cfg.snippet;
+    $("copy").onclick = () => {
+      navigator.clipboard.writeText(cfg.snippet);
+      $("copy").textContent = "Copied ✓";
+      setTimeout(() => ($("copy").textContent = "Copy snippet"), 1500);
+    };
+  } catch (e) { $("snippet").textContent = "(could not load snippet)"; }
+})();
 </script>
 </body>
 </html>

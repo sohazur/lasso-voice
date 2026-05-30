@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Acme Coffee — Demo Store</title>
+<style>
+  :root { --ink:#1a1f24; --muted:#6b7682; --line:#e6eaee; --accent:#b4541f; --bg:#faf8f5; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; }
+  header { display:flex; align-items:center; justify-content:space-between;
+    padding:18px 28px; border-bottom:1px solid var(--line); background:#fff; }
+  .brand { font-weight:700; font-size:18px; letter-spacing:-.01em; }
+  .brand span { color:var(--accent); }
+  .cartpill { font-size:13px; color:var(--muted); }
+  main { max-width:760px; margin:0 auto; padding:40px 24px 80px; }
+  .product { display:grid; grid-template-columns:200px 1fr; gap:28px; align-items:center;
+    background:#fff; border:1px solid var(--line); border-radius:18px; padding:24px; }
+  .shot { width:200px; height:200px; border-radius:14px;
+    background:radial-gradient(circle at 35% 30%, #d9a066, #6f3d18); }
+  h1 { font-size:24px; margin:0 0 6px; letter-spacing:-.02em; }
+  .price { font-size:22px; font-weight:700; margin:6px 0 14px; }
+  .desc { color:var(--muted); margin:0 0 20px; }
+  button { font:inherit; font-weight:600; cursor:pointer; border:0; border-radius:11px;
+    padding:13px 22px; color:#fff; background:var(--accent); transition:.15s; }
+  button:hover { filter:brightness(1.06); }
+  .ghost { background:#fff; color:var(--ink); border:1px solid var(--line); }
+  .checkout { margin-top:34px; background:#fff; border:1px solid var(--line);
+    border-radius:18px; padding:24px; }
+  .checkout h2 { margin:0 0 14px; font-size:17px; }
+  .row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px dashed var(--line); }
+  .row.total { border:0; font-weight:700; font-size:18px; padding-top:14px; }
+  .actions { display:flex; gap:12px; margin-top:18px; flex-wrap:wrap; }
+  .hint { color:var(--muted); font-size:13px; margin-top:18px; }
+  .hint code { background:#eef1f4; padding:2px 6px; border-radius:6px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Acme <span>Coffee</span></div>
+  <div class="cartpill" id="cartpill">Cart: $120.00</div>
+</header>
+
+<main>
+  <div class="product">
+    <div class="shot"></div>
+    <div>
+      <h1>Single-Origin Ethiopia · 1kg</h1>
+      <div class="price">$120.00</div>
+      <p class="desc">Bright, floral, washed Yirgacheffe. Roasted to order. Free returns.</p>
+      <button id="add">Add to cart</button>
+    </div>
+  </div>
+
+  <div class="checkout">
+    <h2>Your cart</h2>
+    <div class="row"><span>Single-Origin Ethiopia · 1kg</span><span>$120.00</span></div>
+    <div class="row total"><span>Total</span><span id="total">$120.00</span></div>
+    <div class="actions">
+      <button id="abandon">Leave checkout (trigger Lasso)</button>
+      <button class="ghost" id="buy">Complete purchase</button>
+    </div>
+    <p class="hint">
+      This page sets <code>window.LASSO_CART</code> and loads <code>/embed.js</code>.
+      "Leave checkout" fires the consented recovery modal. Real exit-intent (moving your
+      mouse out the top of the window) triggers it too.
+    </p>
+  </div>
+</main>
+
+<!-- The store declares its live cart for Lasso to read. -->
+<script>
+  window.LASSO_CART = {
+    currency: "USD",
+    total: 120.00,
+    items: [{ title: "Single-Origin Ethiopia 1kg", qty: 1, price: 120.00 }]
+  };
+  document.getElementById("abandon").onclick = function () {
+    // Force the modal the way a checkout page would on abandonment.
+    if (window.Lasso) window.Lasso.open();
+  };
+  document.getElementById("buy").onclick = function () {
+    alert("Pretend purchase complete — in the demo we abandon instead 🙂");
+  };
+  document.getElementById("add").onclick = function () {
+    document.getElementById("cartpill").textContent = "Cart: $120.00";
+  };
+</script>
+
+<!-- The one line a merchant pastes. data-store is their merchant id. -->
+<script src="/embed.js" data-store="acme" data-store-name="Acme Coffee"></script>
+</body>
+</html>
