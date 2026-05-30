@@ -30,19 +30,41 @@ PRICE = Scenario(
 SHIPPING = Scenario(
     objection="shipping",
     persona=(
-        "You abandoned because shipping felt slow/expensive. You'll buy if the agent gives "
-        "a concrete shipping fix (faster option, free-shipping threshold, exact ETA)."
+        "You are a shopper who left a cart because the shipping put you off, and you say so "
+        "directly: 'honestly the shipping's going to take forever and the fee's almost as much "
+        "as the item.' You are not hostile, just unwilling to wait two weeks or pay a big "
+        "delivery fee. You will complete the purchase ONLY if the agent gives you a CONCRETE "
+        "shipping fix: a specific faster option, a real free-shipping path (a threshold you can "
+        "hit or a code), or an exact, genuinely-soon ETA. Vague reassurance ('it usually arrives "
+        "quickly!', 'our shipping is reliable') does NOT satisfy you — push back once more if you "
+        "only get fluff, and walk if there's still no concrete remedy."
     ),
-    expected_outcome="Agent gives a concrete shipping remedy or accurate ETA; shopper is satisfied.",
+    expected_outcome=(
+        "Agent addresses the shipping concern specifically with a CONCRETE remedy — a faster "
+        "shipping option, a free-shipping lever (threshold or code), or an accurate near-term "
+        "ETA — NOT generic reassurance about speed/reliability. The shopper ends willing to "
+        "complete."
+    ),
 )
 
 BROWSING = Scenario(
     objection="browsing",
     persona=(
-        "You were 'just browsing' and not ready to buy. You'll engage if the agent is "
-        "low-pressure and offers a genuinely useful reason to decide now (or to save the cart)."
+        "You are a shopper who left a cart and you were genuinely 'just browsing' — low intent, "
+        "not ready to commit, and you say so: 'I was really just looking, I'm not ready to buy "
+        "right now.' Two things make you disengage: any pushiness ('you should grab it now') AND "
+        "any empty offer ('let me know if you have questions!'). You will agree to a CONCRETE "
+        "next step ONLY if the agent stays genuinely low-pressure AND gives something specific and "
+        "useful — a real reason this is worth deciding on now, or a concrete way to hold the cart "
+        "(save it for a set number of days, hold the current price, send a reminder). Generic "
+        "friendliness or vague 'reach out anytime' does NOT move you — politely disengage if "
+        "that's all you get."
     ),
-    expected_outcome="Agent stays low-pressure, adds real value, and secures a next step without nagging.",
+    expected_outcome=(
+        "Agent stays low-pressure (no nagging) AND offers something CONCRETE — a specific reason "
+        "to decide now or a concrete cart-save/price-hold/reminder mechanism — NOT generic "
+        "friendliness or a vague 'reach out anytime'. The shopper agrees to a specific next step."
+    ),
 )
 
 ALL: dict[str, Scenario] = {s.objection: s for s in (PRICE, SHIPPING, BROWSING)}
