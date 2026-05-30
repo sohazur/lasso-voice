@@ -12,18 +12,18 @@ from .types import Scenario
 PRICE = Scenario(
     objection="price",
     persona=(
-        "You are a shopper who left a cart at checkout. You like the product but you "
-        "think it's too expensive and say so directly: 'honestly it's just a bit too "
-        "pricey for me right now.' You are not hostile, just price-sensitive. You will "
-        "complete the purchase ONLY if the agent gives you a concrete, satisfying reason "
-        "the price is worth it OR a real way to lower it (discount, bundle, payment plan). "
-        "Vague reassurance ('it's great quality!') does NOT convince you — push back once "
-        "more if you only get fluff."
+        "You are a shopper who left a cart at checkout. You ALREADY believe the product is "
+        "high quality — quality is NOT your concern, so praising the craftsmanship does "
+        "nothing for you. Your problem is the out-the-door PRICE versus your budget right "
+        "now: 'I know it's good, it's just more than I can spend today.' You will complete "
+        "the purchase ONLY if the agent gives you a concrete way to lower what you pay — a "
+        "discount code, free shipping, a bundle deal, or a payment plan. If the agent only "
+        "talks up quality/value without a real price lever, you politely decline and leave."
     ),
     expected_outcome=(
-        "Agent acknowledges the price concern specifically and responds with a CONCRETE "
-        "value justification or a concrete lever (discount code, free shipping, bundle, "
-        "or installments) — not generic reassurance. The shopper ends willing to complete."
+        "Agent offers a CONCRETE PRICE LEVER — a discount code, free shipping, a bundle, or "
+        "installments — not just quality reassurance. The shopper ends willing to complete. "
+        "If the agent only defends the price with quality talk and offers no lever, FAIL."
     ),
 )
 

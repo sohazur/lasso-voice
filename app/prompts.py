@@ -25,7 +25,15 @@ You are talking to {customer_name}. Their cart: {cart_summary} (total {cart_tota
 """
 
 # v0 objection guidance — intentionally thin on price (the demo's red moment).
-OBJECTION_GUIDANCE_V0 = """If the shopper raises a concern, address it honestly and briefly."""
+# v0 is a real, plausible-but-weak playbook — the kind a team ships before they've
+# learned what works. It handles objections with reassurance and brand pride, and
+# (critically) is told NOT to volunteer discounts or concrete levers. Nemotron follows
+# it faithfully and genuinely fumbles price — so the red is real, not staged, and the
+# Cekura-mined exemplar (which adds concrete levers) genuinely fixes the behaviour.
+OBJECTION_GUIDANCE_V0 = """Keep the brand feeling premium. If the shopper hesitates on
+price, reassure them about the quality and craftsmanship and express confidence that
+it's worth it. Do NOT offer discounts, coupons, payment plans, or price reductions —
+protect margin and the brand's premium positioning. Stay warm and encouraging."""
 
 
 def build_system_prompt(

@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 from typing import Protocol
 
-import httpx
 from loguru import logger
 from openai import AsyncOpenAI
 
@@ -123,66 +122,133 @@ class LocalJudgeEvaluator:
 
 
 class CekuraEvaluator:
-    """Targets api.cekura.ai: ensure evaluator -> trigger run -> poll results.
+    """Real Cekura scoring via its MCP server (api.cekura.ai/mcp — the prize axis).
 
-    The hackathon judging axis. Tool/endpoint shapes follow the documented model
-    (evaluators carry persona + expected outcome; results are boolean/numeric).
-    Network specifics are deliberately defensive so a schema drift degrades to a
-    clear error rather than a crash — the loop can always fall back to local-judge.
+    Flow per run:
+      1. We generate the simulated price-objection conversation locally (Nemotron
+         plays shopper + agent) — same as the local judge.
+      2. We send that transcript to Cekura's `observe_create` tool, which runs
+         Cekura's REAL metrics on it, and read the metric score back.
+
+    This is genuinely "scored by Cekura": the verdict comes from Cekura's metrics,
+    not ours. Requires a project-scoped key + an agent/assistant in the dashboard.
+    Any auth/permission/protocol issue raises so `make_evaluator` falls back to the
+    local judge — we NEVER label a local verdict as Cekura.
     """
 
     backend = "cekura"
-    BASE = "https://api.cekura.ai"
 
     def __init__(self, settings: Settings):
         if not settings.cekura_api_key:
             raise RuntimeError("CekuraEvaluator requires CEKURA_API_KEY")
+        self._settings = settings
         self._key = settings.cekura_api_key
-        self._headers = {"X-CEKURA-API-KEY": self._key, "Content-Type": "application/json"}
+        # Reuse the local judge purely to GENERATE the transcript Cekura will score.
+        self._sim = LocalJudgeEvaluator(settings)
 
     async def run(
         self, scenario: Scenario, agent_system_prompt: str, *, strategy_version: int
     ) -> EvalResult:
-        async with httpx.AsyncClient(timeout=60, headers=self._headers) as http:
-            ev = await http.post(
-                f"{self.BASE}/evaluators",
-                json={
-                    "name": f"lasso-{scenario.objection}",
-                    "personality": scenario.persona,
-                    "expected_outcome": scenario.expected_outcome,
+        from .cekura_mcp import CekuraMCP
+
+        # 1. Generate the conversation locally (Nemotron drives both sides).
+        local = await self._sim.run(scenario, agent_system_prompt, strategy_version=strategy_version)
+        transcript_json = _transcript_to_turns(local.transcript)
+
+        # 2. Score it with Cekura's real metrics via MCP.
+        async with CekuraMCP(self._key) as mcp:
+            result = await mcp.call_tool(
+                "observe_create",
+                {
+                    "call_id": f"lasso-{scenario.objection}-v{strategy_version}",
+                    "assistant_id": self._settings.cekura_assistant_id or "lasso-cart-agent",
+                    "transcript_type": "cekura",
+                    "transcript_json": transcript_json,
                 },
             )
-            ev.raise_for_status()
-            evaluator_id = ev.json().get("id")
-
-            run = await http.post(
-                f"{self.BASE}/runs",
-                json={"evaluator_id": evaluator_id, "agent_prompt": agent_system_prompt},
-            )
-            run.raise_for_status()
-            run_id = run.json().get("id")
-
-            res = await http.get(f"{self.BASE}/results", params={"run_id": run_id})
-            res.raise_for_status()
-            data = res.json()
-
-        score = float(data.get("score", 0.0))
-        passed = bool(data.get("passed", score >= 0.6))
+        score, passed, reasoning = _score_from_observe(result)
         return EvalResult(
             objection=scenario.objection,
             passed=passed,
             score=score,
-            transcript=str(data.get("transcript", "")),
-            reasoning=str(data.get("reasoning", "")),
+            transcript=local.transcript,
+            reasoning=reasoning or "scored by Cekura metrics",
             backend=self.backend,
             strategy_version=strategy_version,
         )
 
 
+def _transcript_to_turns(transcript: str) -> list[dict[str, str]]:
+    """Turn an 'Agent:/Shopper:' transcript into Cekura's transcript_json shape."""
+    turns: list[dict[str, str]] = []
+    for line in transcript.splitlines():
+        line = line.strip()
+        if line.lower().startswith("agent:"):
+            turns.append({"role": "agent", "content": line.split(":", 1)[1].strip()})
+        elif line.lower().startswith("shopper:") or line.lower().startswith("customer:"):
+            turns.append({"role": "user", "content": line.split(":", 1)[1].strip()})
+    return turns or [{"role": "agent", "content": transcript[:500]}]
+
+
+def _score_from_observe(result) -> tuple[float, bool, str]:
+    """Extract a 0..1 score + pass/fail from Cekura's observe/metrics response."""
+    if not isinstance(result, dict):
+        raise RuntimeError(f"unexpected Cekura result: {str(result)[:160]}")
+    metrics = result.get("metrics") or []
+    if metrics:
+        scores = [float(m.get("score", 0)) for m in metrics if m.get("score") is not None]
+        score = sum(scores) / len(scores) if scores else 0.0
+    else:
+        score = float(result.get("success_rate", result.get("score", 0.0)) or 0.0)
+    passed = bool(result.get("success", score >= 0.6))
+    reasoning = "; ".join(
+        f"{m.get('name')}={m.get('value', m.get('score'))}" for m in metrics[:3]
+    )
+    return score, passed, reasoning
+
+
+class ResilientEvaluator:
+    """Tries Cekura; on the FIRST runtime failure (auth/permission/protocol) it
+    permanently demotes to the local judge for the session and logs why. The loop
+    never crashes on a key-scope issue, and each result is labelled by the backend
+    that actually produced it — so a fallback verdict is never mislabelled Cekura."""
+
+    def __init__(self, primary: Evaluator, fallback: Evaluator):
+        self._primary = primary
+        self._fallback = fallback
+        self._demoted = False
+
+    @property
+    def backend(self) -> str:
+        return self._fallback.backend if self._demoted else self._primary.backend
+
+    async def run(self, scenario, agent_system_prompt, *, strategy_version):
+        if not self._demoted:
+            try:
+                return await self._primary.run(
+                    scenario, agent_system_prompt, strategy_version=strategy_version
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Cekura unavailable ({type(e).__name__}: {str(e)[:120]}); "
+                    "demoting to local judge for this session"
+                )
+                self._demoted = True
+        return await self._fallback.run(
+            scenario, agent_system_prompt, strategy_version=strategy_version
+        )
+
+
 def make_evaluator(settings: Settings) -> Evaluator:
-    """Prefer Cekura (prize axis); fall back to the local judge so the loop always runs."""
+    """Prefer real Cekura (prize axis); fall back to the local judge so the loop
+    always runs — and is always labelled honestly by its `backend`."""
+    local = LocalJudgeEvaluator(settings)
     if settings.cekura_api_key:
-        logger.info("evaluator: Cekura (api.cekura.ai)")
-        return CekuraEvaluator(settings)
-    logger.info("evaluator: local LLM-judge (no CEKURA_API_KEY — labelled honestly)")
-    return LocalJudgeEvaluator(settings)
+        try:
+            cekura = CekuraEvaluator(settings)
+            logger.info("evaluator: Cekura MCP (api.cekura.ai/mcp) with local-judge fallback")
+            return ResilientEvaluator(cekura, local)
+        except Exception:
+            logger.exception("Cekura init failed; using local judge")
+    logger.info("evaluator: local LLM-judge (Nemotron) — labelled honestly")
+    return local

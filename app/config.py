@@ -47,6 +47,7 @@ class Settings:
     cartesia_voice_id: str
     # Cekura (the learning signal — used in Phase 4)
     cekura_api_key: str
+    cekura_assistant_id: str
     # Supabase (Phase 3)
     supabase_url: str
     supabase_key: str
@@ -87,6 +88,7 @@ def load_settings() -> Settings:
         cartesia_api_key=_opt("CARTESIA_API_KEY"),
         cartesia_voice_id=_opt("CARTESIA_VOICE_ID", "71a7ad14-091c-4e8e-a314-022ece01c121"),
         cekura_api_key=_opt("CEKURA_API_KEY"),
+        cekura_assistant_id=_opt("CEKURA_ASSISTANT_ID"),
         supabase_url=_opt("SUPABASE_URL"),
         supabase_key=_opt("SUPABASE_KEY"),
     )
