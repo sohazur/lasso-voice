@@ -21,11 +21,26 @@ from twilio.rest import Client as TwilioClient
 
 from .bot import run_bot
 from .config import llm_label, load_settings
+from .loop.improve import ImprovementLoop
+from .loop.store import LoopStore
 
 settings = load_settings()
 twilio_client = TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
 
 app = FastAPI(title="Lasso Voice")
+
+# One shared store so /improve, /cekura/run and /api/scoreboard see the same state.
+_store = LoopStore(settings)
+_loop: ImprovementLoop | None = None
+
+
+def get_loop() -> ImprovementLoop:
+    """Lazy-init: the loop needs an LLM key (Nemotron or OpenAI); /dialout does not.
+    Building it lazily keeps the server bootable when only telephony keys are set."""
+    global _loop
+    if _loop is None:
+        _loop = ImprovementLoop(settings, store=_store)
+    return _loop
 
 
 class DialoutRequest(BaseModel):
@@ -98,3 +113,75 @@ async def ws(websocket: WebSocket):
         logger.exception("bot run failed")
     finally:
         logger.info(f"ws closed call_sid={call_sid}")
+
+
+# ── The Cekura self-improvement loop ─────────────────────────────────────────
+
+
+class ImproveRequest(BaseModel):
+    objection: str = "price"  # locked demo objection
+    store_name: str = "the store"
+
+
+def _result_json(r) -> dict:
+    return {
+        "objection": r.objection,
+        "passed": r.passed,
+        "score": round(r.score, 3),
+        "reasoning": r.reasoning,
+        "backend": r.backend,
+        "strategy_version": r.strategy_version,
+        "transcript": r.transcript,
+    }
+
+
+@app.post("/cekura/run/{merchant_id}")
+async def cekura_run(merchant_id: str, req: ImproveRequest):
+    """Run ONE eval against the agent's current prompt (no mining). Red or green."""
+    result = await get_loop().evaluate_once(merchant_id, req.objection, req.store_name)
+    return JSONResponse(_result_json(result))
+
+
+@app.post("/improve/{merchant_id}")
+async def improve(merchant_id: str, req: ImproveRequest):
+    """The headline loop: run -> (if red) mine -> store -> re-run. Returns red->green."""
+    report = await get_loop().improve(merchant_id, req.objection, req.store_name)
+    return JSONResponse(
+        {
+            "objection": report.objection,
+            "flipped_green": report.flipped_green,
+            "before": _result_json(report.before),
+            "after": _result_json(report.after) if report.after else None,
+            "mined_exemplar": (
+                {"objection": report.mined.objection, "corrected_handling": report.mined.corrected_handling}
+                if report.mined
+                else None
+            ),
+        }
+    )
+
+
+@app.get("/api/scoreboard/{merchant_id}")
+async def scoreboard(merchant_id: str):
+    """Per-objection run history + current strategy version → drives the demo scoreboard."""
+    runs = _store.runs_for(merchant_id)
+    return JSONResponse(
+        {
+            "merchant_id": merchant_id,
+            "strategy_version": _store.strategy_version(merchant_id),
+            "runs": [
+                {
+                    "objection": r["objection"],
+                    "passed": r["passed"],
+                    "score": round(r["score"], 3),
+                    "strategy_version": r["strategy_version"],
+                    "backend": r["backend"],
+                }
+                for r in runs
+            ],
+            "exemplars": [
+                {"objection": e.objection, "corrected_handling": e.corrected_handling}
+                for e in _store.exemplars_for(merchant_id)
+            ],
+        }
+    )
