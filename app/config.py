@@ -48,6 +48,8 @@ class Settings:
     # Cekura (the learning signal — used in Phase 4)
     cekura_api_key: str
     cekura_assistant_id: str
+    cekura_agent_id: str  # numeric agent id from the Cekura dashboard
+    cekura_scenario_ids: str  # comma-separated evaluator/scenario ids, e.g. "11,22"
     # Supabase (Phase 3)
     supabase_url: str
     supabase_key: str
@@ -89,6 +91,8 @@ def load_settings() -> Settings:
         cartesia_voice_id=_opt("CARTESIA_VOICE_ID", "71a7ad14-091c-4e8e-a314-022ece01c121"),
         cekura_api_key=_opt("CEKURA_API_KEY"),
         cekura_assistant_id=_opt("CEKURA_ASSISTANT_ID"),
+        cekura_agent_id=_opt("CEKURA_AGENT_ID"),
+        cekura_scenario_ids=_opt("CEKURA_SCENARIO_IDS"),
         supabase_url=_opt("SUPABASE_URL"),
         supabase_key=_opt("SUPABASE_KEY"),
     )
