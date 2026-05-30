@@ -86,13 +86,8 @@ class LocalJudgeEvaluator:
         )
         return resp.choices[0].message.content or ""
 
-    async def run(
-        self, scenario: Scenario, agent_system_prompt: str, *, strategy_version: int
-    ) -> EvalResult:
-        transcript = await self._chat(
-            _SIM_SYSTEM.format(agent_prompt=agent_system_prompt, persona=scenario.persona),
-            "Begin the call now.",
-        )
+    async def _judge(self, scenario: Scenario, transcript: str) -> tuple[bool, float, str]:
+        """Score a transcript against the scenario's pass criterion (LLM judge)."""
         verdict_raw = await self._chat(
             _JUDGE_SYSTEM.format(objection=scenario.objection, expected=scenario.expected_outcome),
             f"Transcript:\n{transcript}",
@@ -100,13 +95,19 @@ class LocalJudgeEvaluator:
         )
         try:
             v = json.loads(verdict_raw)
-            passed = bool(v.get("passed", False))
-            score = float(v.get("score", 0.0))
-            reasoning = str(v.get("reasoning", ""))
+            return bool(v.get("passed", False)), float(v.get("score", 0.0)), str(v.get("reasoning", ""))
         except (json.JSONDecodeError, ValueError):
             logger.warning(f"judge returned non-JSON: {verdict_raw[:120]!r}")
-            passed, score, reasoning = False, 0.0, "judge parse error"
+            return False, 0.0, "judge parse error"
 
+    async def run(
+        self, scenario: Scenario, agent_system_prompt: str, *, strategy_version: int
+    ) -> EvalResult:
+        transcript = await self._chat(
+            _SIM_SYSTEM.format(agent_prompt=agent_system_prompt, persona=scenario.persona),
+            "Begin the call now.",
+        )
+        passed, score, reasoning = await self._judge(scenario, transcript)
         return EvalResult(
             objection=scenario.objection,
             passed=passed,
@@ -117,6 +118,25 @@ class LocalJudgeEvaluator:
             strategy_version=strategy_version,
         )
 
+    async def score_transcript(
+        self, scenario: Scenario, transcript: str, *, strategy_version: int
+    ) -> EvalResult:
+        """Score a REAL (already-happened) call transcript — the live-call learning path.
+
+        Unlike run(), this does NOT simulate a shopper: it judges an actual transcript
+        captured from a live outbound call, so the agent learns from real interactions.
+        """
+        passed, score, reasoning = await self._judge(scenario, transcript)
+        return EvalResult(
+            objection=scenario.objection,
+            passed=passed,
+            score=score,
+            transcript=transcript,
+            reasoning=reasoning,
+            backend="live-call",
+            strategy_version=strategy_version,
+        )
+
 
 # ── Cekura backend (drops in when a key is present) ───────────────────────────
 
@@ -124,15 +144,16 @@ class LocalJudgeEvaluator:
 class CekuraEvaluator:
     """Real Cekura scoring via its MCP server (api.cekura.ai/mcp — the prize axis).
 
-    Flow per run:
-      1. We generate the simulated price-objection conversation locally (Nemotron
-         plays shopper + agent) — same as the local judge.
-      2. We send that transcript to Cekura's `observe_create` tool, which runs
-         Cekura's REAL metrics on it, and read the metric score back.
+    Uses `scenarios_run_text`: Cekura runs YOUR configured evaluators (scenarios) as a
+    cheap text/websocket simulation against the agent, and returns pass/score. The
+    verdict comes from Cekura's evaluators, not ours.
 
-    This is genuinely "scored by Cekura": the verdict comes from Cekura's metrics,
-    not ours. Requires a project-scoped key + an agent/assistant in the dashboard.
-    Any auth/permission/protocol issue raises so `make_evaluator` falls back to the
+    Requires (set in .env once the agent + evalset exist in the Cekura dashboard):
+      - CEKURA_API_KEY        (valid; you have this)
+      - CEKURA_AGENT_ID       (numeric agent id) OR CEKURA_ASSISTANT_ID (external id)
+      - CEKURA_SCENARIO_IDS   (comma-separated evaluator ids to run)
+
+    If those aren't set, this raises in __init__ so make_evaluator falls back to the
     local judge — we NEVER label a local verdict as Cekura.
     """
 
@@ -141,9 +162,16 @@ class CekuraEvaluator:
     def __init__(self, settings: Settings):
         if not settings.cekura_api_key:
             raise RuntimeError("CekuraEvaluator requires CEKURA_API_KEY")
+        if not (settings.cekura_agent_id or settings.cekura_assistant_id):
+            raise RuntimeError("CekuraEvaluator requires CEKURA_AGENT_ID or CEKURA_ASSISTANT_ID")
+        if not settings.cekura_scenario_ids.strip():
+            raise RuntimeError("CekuraEvaluator requires CEKURA_SCENARIO_IDS (evaluator ids)")
         self._settings = settings
         self._key = settings.cekura_api_key
-        # Reuse the local judge purely to GENERATE the transcript Cekura will score.
+        self._scenario_ids = [
+            int(x) for x in settings.cekura_scenario_ids.split(",") if x.strip().isdigit()
+        ]
+        # Reuse the local judge to generate a transcript for our own records/dashboard.
         self._sim = LocalJudgeEvaluator(settings)
 
     async def run(
@@ -151,59 +179,49 @@ class CekuraEvaluator:
     ) -> EvalResult:
         from .cekura_mcp import CekuraMCP
 
-        # 1. Generate the conversation locally (Nemotron drives both sides).
-        local = await self._sim.run(scenario, agent_system_prompt, strategy_version=strategy_version)
-        transcript_json = _transcript_to_turns(local.transcript)
+        args: dict = {
+            "name": f"lasso-{scenario.objection}-v{strategy_version}",
+            "scenarios": self._scenario_ids,
+            "frequency": 1,
+        }
+        if self._settings.cekura_agent_id.isdigit():
+            args["agent_id"] = int(self._settings.cekura_agent_id)
+        elif self._settings.cekura_assistant_id:
+            args["assistant_id"] = self._settings.cekura_assistant_id
 
-        # 2. Score it with Cekura's real metrics via MCP.
         async with CekuraMCP(self._key) as mcp:
-            result = await mcp.call_tool(
-                "observe_create",
-                {
-                    "call_id": f"lasso-{scenario.objection}-v{strategy_version}",
-                    "assistant_id": self._settings.cekura_assistant_id or "lasso-cart-agent",
-                    "transcript_type": "cekura",
-                    "transcript_json": transcript_json,
-                },
-            )
-        score, passed, reasoning = _score_from_observe(result)
+            result = await mcp.call_tool("scenarios_run_text", args)
+        score, passed, reasoning = _score_from_run(result)
+        # Keep a readable transcript for the dashboard (generated locally; the VERDICT is Cekura's).
+        local = await self._sim.run(scenario, agent_system_prompt, strategy_version=strategy_version)
         return EvalResult(
             objection=scenario.objection,
             passed=passed,
             score=score,
             transcript=local.transcript,
-            reasoning=reasoning or "scored by Cekura metrics",
+            reasoning=reasoning or "scored by Cekura evaluators",
             backend=self.backend,
             strategy_version=strategy_version,
         )
 
 
-def _transcript_to_turns(transcript: str) -> list[dict[str, str]]:
-    """Turn an 'Agent:/Shopper:' transcript into Cekura's transcript_json shape."""
-    turns: list[dict[str, str]] = []
-    for line in transcript.splitlines():
-        line = line.strip()
-        if line.lower().startswith("agent:"):
-            turns.append({"role": "agent", "content": line.split(":", 1)[1].strip()})
-        elif line.lower().startswith("shopper:") or line.lower().startswith("customer:"):
-            turns.append({"role": "user", "content": line.split(":", 1)[1].strip()})
-    return turns or [{"role": "agent", "content": transcript[:500]}]
+def _score_from_run(result) -> tuple[float, bool, str]:
+    """Extract a 0..1 score + pass/fail from a Cekura scenarios_run response.
 
-
-def _score_from_observe(result) -> tuple[float, bool, str]:
-    """Extract a 0..1 score + pass/fail from Cekura's observe/metrics response."""
+    Cekura run payloads vary; be defensive across the common shapes (results[],
+    success_rate, score). Raise on anything unrecognized so we fall back honestly.
+    """
     if not isinstance(result, dict):
         raise RuntimeError(f"unexpected Cekura result: {str(result)[:160]}")
-    metrics = result.get("metrics") or []
-    if metrics:
-        scores = [float(m.get("score", 0)) for m in metrics if m.get("score") is not None]
+    runs = result.get("results") or result.get("runs") or []
+    if runs:
+        scores = [float(r.get("score", 0)) for r in runs if r.get("score") is not None]
         score = sum(scores) / len(scores) if scores else 0.0
+        passed = all(bool(r.get("passed", r.get("success", False))) for r in runs)
     else:
         score = float(result.get("success_rate", result.get("score", 0.0)) or 0.0)
-    passed = bool(result.get("success", score >= 0.6))
-    reasoning = "; ".join(
-        f"{m.get('name')}={m.get('value', m.get('score'))}" for m in metrics[:3]
-    )
+        passed = bool(result.get("success", score >= 0.6))
+    reasoning = str(result.get("summary") or result.get("status") or "scored by Cekura")[:200]
     return score, passed, reasoning
 
 

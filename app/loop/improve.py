@@ -48,6 +48,39 @@ class ImprovementLoop:
         )
         return result
 
+    async def learn_from_call(
+        self, merchant_id: str, objection: str, transcript: str, store_name: str = "the store"
+    ) -> LoopReport:
+        """Learn from a REAL outbound call: score its transcript, and if the agent
+        whiffed the objection, mine a corrected exemplar so the NEXT call is smarter.
+
+        This is the underneath-the-hood engine: every live call is a labeled example.
+        Uses the local LLM-judge to score the real transcript (backend='live-call').
+        """
+        scenario = scenarios.get(objection)
+        version = self.store.strategy_version(merchant_id)
+        # The local judge can score an existing transcript; Cekura/Resilient may not,
+        # so reach the underlying judge directly for the live-call path.
+        judge = getattr(self.evaluator, "score_transcript", None)
+        if judge is None and hasattr(self.evaluator, "_fallback"):
+            judge = self.evaluator._fallback.score_transcript  # ResilientEvaluator
+        result = await judge(scenario, transcript, strategy_version=version)
+        self.store.record_run(merchant_id, result)
+        logger.info(
+            f"live-call merchant={merchant_id} obj={objection} v{version} "
+            f"-> {'GREEN' if result.passed else 'RED'} score={result.score:.2f}"
+        )
+        report = LoopReport(objection=objection, before=result, rounds=[result])
+        if result.passed:
+            report.after = result
+            return report
+        # RED on a real call -> mine the fix so the next caller gets the better agent.
+        exemplar = await self.miner.mine(result, scenario.expected_outcome)
+        new_version = self.store.add_exemplar(merchant_id, exemplar)
+        report.mined = exemplar
+        logger.info(f"learned from live call: {objection} -> strategy v{new_version}")
+        return report
+
     async def improve(
         self, merchant_id: str, objection: str = "price", store_name: str = "the store"
     ) -> LoopReport:
