@@ -53,7 +53,9 @@ class Settings:
 
     @property
     def use_nemotron(self) -> bool:
-        return bool(self.nemotron_base_url and self.nemotron_api_key)
+        # The NVIDIA sponsor fleet is a keyless OpenAI-compatible vLLM endpoint,
+        # so a base URL alone is enough — no API key required.
+        return bool(self.nemotron_base_url)
 
     @property
     def use_gradium(self) -> bool:
@@ -72,9 +74,12 @@ def load_settings() -> Settings:
         twilio_account_sid=_req("TWILIO_ACCOUNT_SID"),
         twilio_auth_token=_req("TWILIO_AUTH_TOKEN"),
         twilio_from_number=_req("TWILIO_FROM_NUMBER"),
-        nemotron_base_url=_opt("NEMOTRON_BASE_URL"),
-        nemotron_api_key=_opt("NEMOTRON_API_KEY"),
-        nemotron_model=_opt("NEMOTRON_MODEL", "nvidia/nemotron-3-super-120b"),
+        # Accept both the sponsor's env names (NEMOTRON_LLM_URL/MODEL) and the originals.
+        nemotron_base_url=_opt("NEMOTRON_LLM_URL") or _opt("NEMOTRON_BASE_URL"),
+        nemotron_api_key=_opt("NEMOTRON_API_KEY"),  # keyless fleet → may be empty
+        nemotron_model=(
+            _opt("NEMOTRON_LLM_MODEL") or _opt("NEMOTRON_MODEL") or "nvidia/nemotron-3-super"
+        ),
         openai_api_key=_opt("OPENAI_API_KEY"),
         gradium_api_key=_opt("GRADIUM_API_KEY"),
         gradium_voice_id=_opt("GRADIUM_VOICE_ID"),
@@ -98,7 +103,8 @@ def build_llm(settings: Settings):
     if settings.use_nemotron:
         return OpenAILLMService(
             base_url=settings.nemotron_base_url,
-            api_key=settings.nemotron_api_key,
+            # vLLM fleet ignores the key, but the OpenAI client requires a non-empty string.
+            api_key=settings.nemotron_api_key or "no-key",
             settings=OpenAILLMService.Settings(model=settings.nemotron_model),
         )
     if not settings.openai_api_key:

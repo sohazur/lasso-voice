@@ -69,7 +69,8 @@ class LocalJudgeEvaluator:
         # Reuse whichever LLM creds exist (Nemotron endpoint or OpenAI).
         if settings.use_nemotron:
             self._client = AsyncOpenAI(
-                base_url=settings.nemotron_base_url, api_key=settings.nemotron_api_key
+                base_url=settings.nemotron_base_url,
+                api_key=settings.nemotron_api_key or "no-key",
             )
             self._model = settings.nemotron_model
         else:
