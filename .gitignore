@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.python-version.local
+
+# uv
+.uv/
+
+# Env / secrets
+.env
+.env.local
+*.env
+
+# Node (snippet build)
+node_modules/
+snippet/dist/
+
+# OS / editor
+.DS_Store
+*.log
+.idea/
+.vscode/

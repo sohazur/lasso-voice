@@ -1,0 +1,28 @@
+[project]
+name = "lasso-voice"
+version = "0.1.0"
+description = "Self-improving cart-recovery voice agent — pipecat + Twilio. Embed a script tag; on checkout abandonment it calls the shopper, recovers the cart, and learns why people abandon."
+requires-python = ">=3.11"
+dependencies = [
+    # Web / control plane
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-dotenv>=1.0.1",
+    "pydantic>=2.9.0",
+    # Telephony
+    "twilio>=9.3.0",
+    # Voice pipeline — pipecat with Twilio transport + default model providers.
+    # Providers are one-line swaps; sponsor models (Gradium/NVIDIA/Cerebras) drop in later.
+    "pipecat-ai[twilio,deepgram,cartesia,openai,silero]>=0.0.50",
+    # Data
+    "supabase>=2.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.7.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
