@@ -48,8 +48,15 @@ The SHOPPER persona:
 
 Produce a realistic 6-10 turn phone conversation. The agent opens. Alternate turns,
 labelled "Agent:" and "Shopper:". The shopper behaves EXACTLY as the persona says —
-in particular, generic reassurance must NOT satisfy them. End when it's natural.
-Output ONLY the transcript."""
+in particular, generic reassurance must NOT satisfy them.
+
+CRITICAL — the AGENT may only use offers, discounts, promo codes, payment options,
+shipping terms, or facts that are EXPLICITLY written in <agent_prompt> above. It must
+NOT invent any lever that isn't there (no made-up discount %, promo code, payment plan,
+bundle, or free shipping). If <agent_prompt> gives the agent no concrete lever for the
+objection, the agent can ONLY empathize or reassure — it cannot conjure a deal.
+
+End when it's natural. Output ONLY the transcript."""
 
 _JUDGE_SYSTEM = """You are a strict evaluator of a cart-recovery agent's objection handling.
 
