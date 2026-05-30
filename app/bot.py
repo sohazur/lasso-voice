@@ -15,14 +15,12 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.serializers.twilio import TwilioFrameSerializer
-from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
 
-from .config import Settings, build_llm, llm_label
+from .config import Settings, build_llm, build_stt, build_tts, llm_label, voice_label
 from .prompts import build_system_prompt
 
 
@@ -36,7 +34,10 @@ async def run_bot(
     greeting: str | None = None,
 ) -> None:
     """Run one cart-recovery call to completion over an accepted Twilio WS."""
-    logger.info(f"bot start call_sid={call_sid} stream_sid={stream_sid} llm={llm_label(settings)}")
+    logger.info(
+        f"bot start call_sid={call_sid} stream_sid={stream_sid} "
+        f"llm={llm_label(settings)} voice={voice_label(settings)}"
+    )
 
     serializer = TwilioFrameSerializer(
         stream_sid=stream_sid,
@@ -59,11 +60,8 @@ async def run_bot(
         ),
     )
 
-    stt = DeepgramSTTService(api_key=settings.deepgram_api_key)
-    tts = CartesiaTTSService(
-        api_key=settings.cartesia_api_key,
-        voice_id=settings.cartesia_voice_id,
-    )
+    stt = build_stt(settings)
+    tts = build_tts(settings)
     llm = build_llm(settings)
 
     context = LLMContext()

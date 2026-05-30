@@ -20,7 +20,7 @@ from pipecat.runner.utils import parse_telephony_websocket
 from twilio.rest import Client as TwilioClient
 
 from .bot import run_bot
-from .config import llm_label, load_settings
+from .config import llm_label, load_settings, voice_label
 from .loop.improve import ImprovementLoop
 from .loop.store import LoopStore
 
@@ -53,6 +53,7 @@ async def health():
     return {
         "ok": True,
         "llm": llm_label(settings),
+        "voice": voice_label(settings),
         "from_number": settings.twilio_from_number,
         "ws_url": settings.ws_url,
         "cekura_configured": bool(settings.cekura_api_key),

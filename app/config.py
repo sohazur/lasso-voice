@@ -39,7 +39,9 @@ class Settings:
     nemotron_api_key: str
     nemotron_model: str
     openai_api_key: str
-    # STT / TTS
+    # STT / TTS — Gradium is the primary (sponsor) provider; Deepgram+Cartesia are fallback.
+    gradium_api_key: str
+    gradium_voice_id: str
     deepgram_api_key: str
     cartesia_api_key: str
     cartesia_voice_id: str
@@ -52,6 +54,10 @@ class Settings:
     @property
     def use_nemotron(self) -> bool:
         return bool(self.nemotron_base_url and self.nemotron_api_key)
+
+    @property
+    def use_gradium(self) -> bool:
+        return bool(self.gradium_api_key)
 
     @property
     def ws_url(self) -> str:
@@ -70,8 +76,10 @@ def load_settings() -> Settings:
         nemotron_api_key=_opt("NEMOTRON_API_KEY"),
         nemotron_model=_opt("NEMOTRON_MODEL", "nvidia/nemotron-3-super-120b"),
         openai_api_key=_opt("OPENAI_API_KEY"),
-        deepgram_api_key=_req("DEEPGRAM_API_KEY"),
-        cartesia_api_key=_req("CARTESIA_API_KEY"),
+        gradium_api_key=_opt("GRADIUM_API_KEY"),
+        gradium_voice_id=_opt("GRADIUM_VOICE_ID"),
+        deepgram_api_key=_opt("DEEPGRAM_API_KEY"),
+        cartesia_api_key=_opt("CARTESIA_API_KEY"),
         cartesia_voice_id=_opt("CARTESIA_VOICE_ID", "71a7ad14-091c-4e8e-a314-022ece01c121"),
         cekura_api_key=_opt("CEKURA_API_KEY"),
         supabase_url=_opt("SUPABASE_URL"),
@@ -106,3 +114,40 @@ def build_llm(settings: Settings):
 
 def llm_label(settings: Settings) -> str:
     return f"nemotron:{settings.nemotron_model}" if settings.use_nemotron else "openai:gpt-4.1"
+
+
+def build_stt(settings: Settings):
+    """Gradium STT (primary sponsor provider), else Deepgram."""
+    if settings.use_gradium:
+        from pipecat.services.gradium.stt import GradiumSTTService
+
+        # Twilio media is 8kHz; let the pipeline param govern resampling.
+        return GradiumSTTService(api_key=settings.gradium_api_key)
+    if settings.deepgram_api_key:
+        from pipecat.services.deepgram.stt import DeepgramSTTService
+
+        return DeepgramSTTService(api_key=settings.deepgram_api_key)
+    raise RuntimeError("No STT configured: set GRADIUM_API_KEY (preferred) or DEEPGRAM_API_KEY.")
+
+
+def build_tts(settings: Settings):
+    """Gradium TTS (primary sponsor provider), else Cartesia. Output rate is set by
+    the pipeline's audio_out_sample_rate (8kHz for Twilio)."""
+    if settings.use_gradium:
+        from pipecat.services.gradium.tts import GradiumTTSService
+
+        kwargs = {"api_key": settings.gradium_api_key}
+        if settings.gradium_voice_id:
+            kwargs["voice_id"] = settings.gradium_voice_id
+        return GradiumTTSService(**kwargs)
+    if settings.cartesia_api_key:
+        from pipecat.services.cartesia.tts import CartesiaTTSService
+
+        return CartesiaTTSService(
+            api_key=settings.cartesia_api_key, voice_id=settings.cartesia_voice_id
+        )
+    raise RuntimeError("No TTS configured: set GRADIUM_API_KEY (preferred) or CARTESIA_API_KEY.")
+
+
+def voice_label(settings: Settings) -> str:
+    return "gradium" if settings.use_gradium else "deepgram+cartesia"
